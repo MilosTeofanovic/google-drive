@@ -8,7 +8,7 @@ import (
 
 	"drive-backend/models"
 
-	"go.mongodb.org/mongo-driver/bson" // <--- Proveri da li imaš ovaj import
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 )
@@ -49,6 +49,21 @@ func CreateFolderHandler(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	// Provera roditeljskog foldera ako je parent_id prosleđen i nije prazan
+	if req.ParentID != nil && *req.ParentID != "" {
+		var parentFolder models.Folder
+		err := folderCollection.FindOne(ctx, bson.M{"id": *req.ParentID, "owner_id": ownerID}).Decode(&parentFolder)
+		if err != nil {
+			if err == mongo.ErrNoDocuments {
+				http.Error(w, "Roditeljski folder ne postoji ili nemate pravo pristupa", http.StatusBadRequest)
+				return
+			}
+			http.Error(w, "Greška prilikom provere roditeljskog foldera", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	// Provera da li već postoji folder sa istim nazivom za ovog korisnika
 	filter := bson.M{
 		"name":     req.Name,
 		"owner_id": ownerID,
@@ -61,7 +76,7 @@ func CreateFolderHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if count > 0 {
-		http.Error(w, "Folder sa tim nazivom već postoji!", http.StatusConflict) // Status 409 Conflict
+		http.Error(w, "Folder sa tim nazivom već postoji!", http.StatusConflict)
 		return
 	}
 

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"drive-backend/handlers"
+	"drive-backend/middleware"
 
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -50,7 +51,7 @@ func main() {
 	handlers.InitFolderCollection(db.Collection("folders"))
 
 	// 2. Registracija ruta
-	http.HandleFunc("/api/folders", handlers.CreateFolderHandler)
+	http.HandleFunc("/api/folders", middleware.AuthMiddleware(handlers.CreateFolderHandler))
 	http.HandleFunc("/api/register", registerHandler)
 	http.HandleFunc("/api/login", loginHandler)
 	http.HandleFunc("/api/change-email", changeEmailHandler)
