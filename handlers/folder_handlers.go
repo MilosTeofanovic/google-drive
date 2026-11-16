@@ -14,9 +14,14 @@ import (
 )
 
 var folderCollection *mongo.Collection
+var fileCollection *mongo.Collection
 
 func InitFolderCollection(collection *mongo.Collection) {
 	folderCollection = collection
+}
+
+func InitFileCollection(collection *mongo.Collection) {
+	fileCollection = collection
 }
 
 func CreateFolderHandler(w http.ResponseWriter, r *http.Request) {
@@ -98,4 +103,75 @@ func CreateFolderHandler(w http.ResponseWriter, r *http.Request) {
 		"message": "Folder je uspešno kreiran u bazi!",
 		"folder":  newFolder,
 	})
+}
+
+// pregled sadrzaja foldera
+func GetFolderContentHandler(w http.ResponseWriter, r *http.Request) {
+	ownerID := r.Header.Get("X-User-ID")
+	if ownerID == "" {
+		ownerID = "1"
+	}
+	folderID := r.URL.Query().Get("folder_id")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var parentFilter interface{} = bson.M{"$in": []interface{}{nil, ""}}
+	if folderID != "" {
+		parentFilter = folderID
+	}
+
+	var subfolders []models.Folder
+	cursorF, _ := folderCollection.Find(ctx, bson.M{"owner_id": ownerID, "parent_id": parentFilter})
+	if cursorF != nil {
+		cursorF.All(ctx, &subfolders)
+	}
+
+	var files []models.File
+	if fileCollection != nil {
+		cursorD, _ := fileCollection.Find(ctx, bson.M{"owner_id": ownerID, "folder_id": parentFilter})
+		if cursorD != nil {
+			cursorD.All(ctx, &files)
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"subfolders": subfolders,
+		"files":      files,
+	})
+}
+
+// preimenovanje foldera ili fajla
+func RenameItemHandler(w http.ResponseWriter, r *http.Request) {
+	ownerID := r.Header.Get("X-User-ID")
+	if ownerID == "" {
+		ownerID = "1"
+	}
+
+	var req struct {
+		Type    string `json:"type"`
+		ID      string `json:"id"`
+		NewName string `json:"new_name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.ID == "" || req.NewName == "" {
+		http.Error(w, "Nevalidni podaci", http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	col := folderCollection
+	if req.Type == "file" {
+		col = fileCollection
+	}
+
+	res, err := col.UpdateOne(ctx, bson.M{"id": req.ID, "owner_id": ownerID}, bson.M{"$set": bson.M{"name": req.NewName}})
+	if err != nil || res.MatchedCount == 0 {
+		http.Error(w, "Stavka nije pronađena ili nemate pravo izmene", http.StatusNotFound)
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]string{"message": "Naziv uspešno promenjen!"})
 }

@@ -50,8 +50,12 @@ func main() {
 	db := client.Database("google_drive")
 	handlers.InitFolderCollection(db.Collection("folders"))
 
+	handlers.InitFileCollection(db.Collection("files"))
+
 	// 2. Registracija ruta
 	http.HandleFunc("/api/folders", middleware.AuthMiddleware(handlers.CreateFolderHandler))
+	http.HandleFunc("/api/folders/content", middleware.AuthMiddleware(handlers.GetFolderContentHandler))
+	http.HandleFunc("/api/items/rename", middleware.AuthMiddleware(handlers.RenameItemHandler))
 	http.HandleFunc("/api/register", registerHandler)
 	http.HandleFunc("/api/login", loginHandler)
 	http.HandleFunc("/api/change-email", changeEmailHandler)
