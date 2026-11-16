@@ -1,0 +1,48 @@
+* { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, sans-serif; }
+body { background-color: #f8fafd; color: #1f1f1f; }
+.hidden { display: none !important; }
+
+.auth-container { height: 100vh; display: flex; align-items: center; justify-content: center; background: #e8f0fe; }
+.auth-card { background: white; padding: 36px; border-radius: 16px; width: 100%; max-width: 400px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
+.logo-header { display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 24px; color: #1a73e8; }
+.logo-icon { font-size: 32px; }
+.auth-tabs { display: flex; margin-bottom: 20px; border-bottom: 1px solid #e0e0e0; }
+.auth-tabs button { flex: 1; padding: 10px; border: none; background: none; cursor: pointer; font-weight: 600; color: #5f6368; }
+.auth-tabs button.active { color: #1a73e8; border-bottom: 2px solid #1a73e8; }
+
+input { width: 100%; padding: 11px 14px; margin-bottom: 12px; border: 1px solid #dadce0; border-radius: 8px; font-size: 14px; }
+input:focus { outline: none; border-color: #1a73e8; }
+.btn-primary { background: #1a73e8; color: white; border: none; padding: 11px 18px; border-radius: 8px; font-weight: 600; cursor: pointer; }
+.btn-primary:hover { background: #1557b0; }
+.full-width { width: 100%; }
+.btn-outline { background: white; border: 1px solid #dadce0; color: #3c4043; padding: 8px 14px; border-radius: 8px; cursor: pointer; }
+
+.topbar { height: 64px; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; background: #f8fafd; }
+.brand { display: flex; align-items: center; gap: 10px; font-size: 20px; font-weight: 500; color: #444746; }
+.search-bar { display: flex; align-items: center; background: #e9eef6; padding: 0 16px; border-radius: 24px; width: 100%; max-width: 550px; height: 44px; }
+.search-bar input { border: none; background: transparent; margin: 0 0 0 10px; font-size: 15px; }
+.user-actions { display: flex; align-items: center; gap: 12px; }
+.user-email { font-size: 14px; color: #5f6368; }
+
+.main-layout { display: flex; height: calc(100vh - 64px); }
+.sidebar { width: 240px; padding: 12px 16px; display: flex; flex-direction: column; }
+.btn-new { display: flex; align-items: center; gap: 10px; background: white; border: none; padding: 14px 20px; border-radius: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.2); font-weight: 500; cursor: pointer; margin-bottom: 20px; }
+.nav-item { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-radius: 20px; cursor: pointer; font-size: 14px; font-weight: 500; background: #c2e7ff; color: #001d35; }
+
+.content-area { flex: 1; background: white; border-radius: 16px; margin: 0 16px 16px 0; padding: 20px 28px; overflow-y: auto; }
+.breadcrumbs { display: flex; align-items: center; gap: 8px; font-size: 18px; margin-bottom: 24px; }
+.crumb { cursor: pointer; color: #5f6368; }
+.crumb.active { color: #1f1f1f; font-weight: 500; }
+.section-title { font-size: 14px; color: #444746; margin: 16px 0 12px; }
+
+.items-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; margin-bottom: 24px; }
+.item-card { display: flex; align-items: center; background: #f0f4f9; padding: 12px 16px; border-radius: 12px; cursor: pointer; }
+.item-card:hover { background: #dfe3e8; }
+.item-info { display: flex; align-items: center; gap: 10px; }
+.item-name { font-size: 14px; font-weight: 500; }
+
+.modal { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 100; }
+.modal-content { background: white; padding: 24px; border-radius: 16px; width: 100%; max-width: 380px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 12px; }
+.toast { position: fixed; bottom: 24px; left: 24px; background: #323232; color: white; padding: 12px 20px; border-radius: 8px; font-size: 14px; z-index: 200; }
+.msg-box { margin-top: 12px; font-size: 13px; text-align: center; color: #d93025; }

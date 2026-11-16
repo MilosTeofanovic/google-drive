@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html/template"
 	"log"
 	"net/http"
 	"time"
@@ -60,6 +61,19 @@ func main() {
 	http.HandleFunc("/api/login", loginHandler)
 	http.HandleFunc("/api/change-email", changeEmailHandler)
 	http.HandleFunc("/api/change-password", changePasswordHandler)
+
+	// Serviranje statičkih fajlova (CSS)
+	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("./static"))))
+
+	// Ruta koja učitava HTML šablon
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		tmpl, err := template.ParseFiles("templates/index.html")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		tmpl.Execute(w, nil)
+	})
 
 	fmt.Println("Server je pokrenut na portu 8080...")
 	err = http.ListenAndServe(":8080", nil)

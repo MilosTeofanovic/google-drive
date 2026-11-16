@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="sr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Google Drive - Projekat</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" rel="stylesheet">
+</head>
+<body>
+
+    <!-- ekran za login signup -->
+    <div id="auth-screen" class="auth-container">
+        <div class="auth-card">
+            <div class="logo-header">
+                <span class="material-icons-outlined logo-icon">cloud_queue</span>
+                <h2>Moj Drive</h2>
+            </div>
+            <div class="auth-tabs">
+                <button id="tab-login" class="active" onclick="switchAuthTab('login')">Prijava</button>
+                <button id="tab-register" onclick="switchAuthTab('register')">Registracija</button>
+            </div>
+
+            <form id="login-form" onsubmit="handleLogin(event)">
+                <input type="email" id="login-email" placeholder="Email adresa" required>
+                <input type="password" id="login-password" placeholder="Lozinka" required>
+                <button type="submit" class="btn-primary full-width">Prijavi se</button>
+            </form>
+
+            <form id="register-form" class="hidden" onsubmit="handleRegister(event)">
+                <input type="text" id="reg-fname" placeholder="Ime" required>
+                <input type="text" id="reg-lname" placeholder="Prezime" required>
+                <input type="email" id="reg-email" placeholder="Email adresa" required>
+                <input type="password" id="reg-pass" placeholder="Lozinka" required>
+                <input type="password" id="reg-confirm" placeholder="Potvrdi lozinku" required>
+                <button type="submit" class="btn-primary full-width">Napravi nalog</button>
+            </form>
+            <p id="auth-msg" class="msg-box"></p>
+        </div>
+    </div>
+
+    <!-- glavni drajv interfejs -->
+    <div id="app-screen" class="app-container hidden">
+        <header class="topbar">
+            <div class="brand">
+                <span class="material-icons-outlined logo-icon">cloud_queue</span>
+                <span>Moj Drive</span>
+            </div>
+            <div class="search-bar">
+                <span class="material-icons-outlined">search</span>
+                <input type="text" id="search-input" placeholder="Pretraži..." oninput="filterItems()">
+            </div>
+            <div class="user-actions">
+                <span id="user-badge" class="user-email"></span>
+                <button class="btn-outline" onclick="logout()">Odjavi se</button>
+            </div>
+        </header>
+
+        <div class="main-layout">
+            <aside class="sidebar">
+                <button class="btn-new" onclick="openNewFolderModal()">
+                    <span class="material-icons-outlined">add</span> Novi folder
+                </button>
+                <nav class="side-nav">
+                    <div class="nav-item active" onclick="navigateToRoot()">
+                        <span class="material-icons-outlined">folder</span> Moj disk
+                    </div>
+                </nav>
+            </aside>
+
+            <main class="content-area">
+                <div class="breadcrumbs" id="breadcrumbs">
+                    <span class="crumb active" onclick="navigateToRoot()">Moj disk</span>
+                </div>
+                <section id="folders-section">
+                    <h4 class="section-title">Folderi</h4>
+                    <div id="folders-grid" class="items-grid"></div>
+                </section>
+                <section id="files-section">
+                    <h4 class="section-title">Fajlovi</h4>
+                    <div id="files-grid" class="items-grid"></div>
+                </section>
+                <div id="empty-state" class="empty-state hidden">
+                    <span class="material-icons-outlined">folder_open</span>
+                    <p>Ovaj folder je prazan.</p>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- novi folder -->
+    <div id="folder-modal" class="modal hidden">
+        <div class="modal-content">
+            <h3>Novi folder</h3>
+            <input type="text" id="new-folder-name" placeholder="Naziv foldera">
+            <div class="modal-actions">
+                <button class="btn-outline" onclick="closeModal('folder-modal')">Otkaži</button>
+                <button class="btn-primary" onclick="createFolder()">Kreiraj</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast" class="toast hidden"></div>
+
+    <script>
+        let currentUser = JSON.parse(localStorage.getItem("drive_user")) || null;
+        let currentFolderId = null;
+        let folderPath = [{ id: null, name: "Moj disk" }];
+        let currentData = { subfolders: [], files: [] };
+
+        window.onload = () => { if (currentUser) showApp(); };
+
+        function getAuthHeaders() {
+            return { "Content-Type": "application/json", "Authorization": "Bearer dummy-token-123" };
+        }
+
+        function showToast(msg) {
+            const t = document.getElementById("toast");
+            t.textContent = msg; t.classList.remove("hidden");
+            setTimeout(() => t.classList.add("hidden"), 3000);
+        }
+
+        function switchAuthTab(tab) {
+            document.getElementById("auth-msg").textContent = "";
+            document.getElementById("tab-login").classList.toggle("active", tab === "login");
+            document.getElementById("tab-register").classList.toggle("active", tab === "register");
+            document.getElementById("login-form").classList.toggle("hidden", tab !== "login");
+            document.getElementById("register-form").classList.toggle("hidden", tab !== "register");
+        }
+
+        async function handleRegister(e) {
+            e.preventDefault();
+            const payload = {
+                first_name: document.getElementById("reg-fname").value,
+                last_name: document.getElementById("reg-lname").value,
+                email: document.getElementById("reg-email").value,
+                password: document.getElementById("reg-pass").value,
+                confirm_password: document.getElementById("reg-confirm").value
+            };
+            const res = await fetch("/api/register", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload) });
+            if (!res.ok) { document.getElementById("auth-msg").textContent = await res.text(); return; }
+            showToast("Uspešna registracija! Prijavite se.");
+            switchAuthTab("login");
+        }
+
+        async function handleLogin(e) {
+            e.preventDefault();
+            const email = document.getElementById("login-email").value;
+            const password = document.getElementById("login-password").value;
+            const res = await fetch("/api/login", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({email, password}) });
+            if (!res.ok) { document.getElementById("auth-msg").textContent = await res.text(); return; }
+            const data = await res.json();
+            currentUser = { email, role: data.role };
+            localStorage.setItem("drive_user", JSON.stringify(currentUser));
+            showApp();
+        }
+
+        function logout() {
+            localStorage.removeItem("drive_user");
+            currentUser = null;
+            document.getElementById("app-screen").classList.add("hidden");
+            document.getElementById("auth-screen").classList.remove("hidden");
+        }
+
+        function showApp() {
+            document.getElementById("auth-screen").classList.add("hidden");
+            document.getElementById("app-screen").classList.remove("hidden");
+            document.getElementById("user-badge").textContent = currentUser.email;
+            loadFolderContent(null);
+        }
+
+        async function loadFolderContent(folderId) {
+            currentFolderId = folderId;
+            const url = folderId ? `/api/folders/content?folder_id=${folderId}` : `/api/folders/content`;
+            const res = await fetch(url, { headers: getAuthHeaders() });
+            if (!res.ok) return;
+            const data = await res.json();
+            currentData = { subfolders: data.subfolders || [], files: data.files || [] };
+            renderBreadcrumbs();
+            renderItems(currentData.subfolders, currentData.files);
+        }
+
+        function renderItems(folders, files) {
+            const fGrid = document.getElementById("folders-grid");
+            const dGrid = document.getElementById("files-grid");
+            fGrid.innerHTML = ""; dGrid.innerHTML = "";
+
+            document.getElementById("folders-section").classList.toggle("hidden", folders.length === 0);
+            document.getElementById("files-section").classList.toggle("hidden", files.length === 0);
+            document.getElementById("empty-state").classList.toggle("hidden", folders.length > 0 || files.length > 0);
+
+            folders.forEach(f => {
+                const card = document.createElement("div");
+                card.className = "item-card";
+                card.ondblclick = () => { folderPath.push({id: f.id, name: f.name}); loadFolderContent(f.id); };
+                card.innerHTML = `<div class="item-info"><span class="material-icons-outlined">folder</span><span class="item-name">${f.name}</span></div>`;
+                fGrid.appendChild(card);
+            });
+
+            files.forEach(file => {
+                const card = document.createElement("div");
+                card.className = "item-card";
+                card.innerHTML = `<div class="item-info"><span class="material-icons-outlined" style="color:#1a73e8">description</span><span class="item-name">${file.name}</span></div>`;
+                dGrid.appendChild(card);
+            });
+        }
+
+        function navigateToRoot() { folderPath = [{ id: null, name: "Moj disk" }]; loadFolderContent(null); }
+        function navigateToCrumb(idx) { folderPath = folderPath.slice(0, idx + 1); loadFolderContent(folderPath[idx].id); }
+
+        function renderBreadcrumbs() {
+            document.getElementById("breadcrumbs").innerHTML = folderPath.map((item, idx) => 
+                `<span class="crumb ${idx === folderPath.length - 1 ? 'active' : ''}" onclick="navigateToCrumb(${idx})">${item.name}</span>`
+            ).join(" › ");
+        }
+
+        function openNewFolderModal() { document.getElementById("new-folder-name").value = ""; document.getElementById("folder-modal").classList.remove("hidden"); }
+        function closeModal(id) { document.getElementById(id).classList.add("hidden"); }
+
+        async function createFolder() {
+            const name = document.getElementById("new-folder-name").value.trim();
+            if (!name) return;
+            const res = await fetch("/api/folders", {
+                method: "POST",
+                headers: getAuthHeaders(),
+                body: JSON.stringify({ name: name, parent_id: currentFolderId })
+            });
+            if (!res.ok) { showToast(await res.text()); return; }
+            closeModal("folder-modal");
+            showToast("Folder kreiran!");
+            loadFolderContent(currentFolderId);
+        }
+
+        function filterItems() {
+            const q = document.getElementById("search-input").value.toLowerCase();
+            renderItems(currentData.subfolders.filter(f => f.name.toLowerCase().includes(q)), currentData.files.filter(f => f.name.toLowerCase().includes(q)));
+        }
+    </script>
+</body>
+</html>
