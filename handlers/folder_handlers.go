@@ -8,13 +8,13 @@ import (
 
 	"drive-backend/models"
 
+	"go.mongodb.org/mongo-driver/bson" // <--- Proveri da li imaš ovaj import
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
 var folderCollection *mongo.Collection
 
-// InitFolderCollection postavlja kolekciju koju dobijamo iz main.go
 func InitFolderCollection(collection *mongo.Collection) {
 	folderCollection = collection
 }
@@ -46,16 +46,31 @@ func CreateFolderHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	filter := bson.M{
+		"name":     req.Name,
+		"owner_id": ownerID,
+	}
+
+	count, err := folderCollection.CountDocuments(ctx, filter)
+	if err != nil {
+		http.Error(w, "Greška prilikom provere baze", http.StatusInternalServerError)
+		return
+	}
+
+	if count > 0 {
+		http.Error(w, "Folder sa tim nazivom već postoji!", http.StatusConflict) // Status 409 Conflict
+		return
+	}
+
 	newFolder := models.Folder{
 		ID:       primitive.NewObjectID().Hex(),
 		Name:     req.Name,
 		ParentID: req.ParentID,
 		OwnerID:  ownerID,
 	}
-
-	// Upis u pravu MongoDB bazu
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
 
 	_, err = folderCollection.InsertOne(ctx, newFolder)
 	if err != nil {
