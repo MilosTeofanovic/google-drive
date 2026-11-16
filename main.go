@@ -1,9 +1,17 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
+	"time"
+
+	"drive-backend/handlers"
+
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 type User struct {
@@ -20,13 +28,36 @@ type User struct {
 var users []User
 
 func main() {
+	// 1. Povezivanje sa MongoDB bazom
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	clientOptions := options.Client().ApplyURI("mongodb+srv://milosteofanovic2005_db_user:Milos12345@projekat.kxn9abn.mongodb.net/")
+	client, err := mongo.Connect(ctx, clientOptions)
+	if err != nil {
+		log.Fatalf("Greška pri povezivanju sa MongoDB: %v", err)
+	}
+
+	// Provera konekcije
+	err = client.Ping(ctx, nil)
+	if err != nil {
+		log.Fatalf("MongoDB nije dostupan: %v", err)
+	}
+	fmt.Println("Uspešno povezani sa MongoDB bazom!")
+
+	// Prosleđujemo kolekciju "folders" u handlers paket
+	db := client.Database("google_drive")
+	handlers.InitFolderCollection(db.Collection("folders"))
+
+	// 2. Registracija ruta
+	http.HandleFunc("/api/folders", handlers.CreateFolderHandler)
 	http.HandleFunc("/api/register", registerHandler)
 	http.HandleFunc("/api/login", loginHandler)
 	http.HandleFunc("/api/change-email", changeEmailHandler)
 	http.HandleFunc("/api/change-password", changePasswordHandler)
 
 	fmt.Println("Server je pokrenut na portu 8080...")
-	err := http.ListenAndServe(":8080", nil)
+	err = http.ListenAndServe(":8080", nil)
 	if err != nil {
 		fmt.Printf("Greška pri pokretanju servera: %v\n", err)
 	}
