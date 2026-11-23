@@ -13,10 +13,19 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
-var usersCollection *mongo.Collection
+var (
+	usersCollection  *mongo.Collection
+	defaultUserQuota int64 = 100 * 1024 * 1024
+)
 
 func InitUserCollection(col *mongo.Collection) {
 	usersCollection = col
+}
+
+func InitDefaultQuota(quotaBytes int64) {
+	if quotaBytes > 0 {
+		defaultUserQuota = quotaBytes
+	}
 }
 
 func RegisterHandler(w http.ResponseWriter, r *http.Request) {
@@ -53,7 +62,7 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 		Email:     req.Email,
 		Password:  req.Password,
 		Role:      "RK",
-		Quota:     100 * 1024 * 1024,
+		Quota:     defaultUserQuota,
 	}
 
 	if _, err := usersCollection.InsertOne(ctx, newUser); err != nil {
