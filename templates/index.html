@@ -266,5 +266,54 @@
             renderItems(currentData.subfolders.filter(f => f.name.toLowerCase().includes(q)), currentData.files.filter(f => f.name.toLowerCase().includes(q)));
         }
     </script>
+    <section id="notifications-panel" style="margin-top: 24px; padding: 16px; border: 1px solid #ccc; border-radius: 8px;">
+  <h3>Notifikacije</h3>
+  <button type="button" onclick="loadNotifications()">Osveži notifikacije</button>
+  <ul id="notifications-list" style="margin-top: 12px;">
+    <li>Kliknite na "Osveži notifikacije" za prikaz.</li>
+  </ul>
+</section>
+
+<script>
+  async function loadNotifications() {
+    const listEl = document.getElementById("notifications-list");
+    listEl.innerHTML = "<li>Učitavanje...</li>";
+
+    const token = localStorage.getItem("token") || "1";
+
+    try {
+      const response = await fetch("/api/notifications", {
+        method: "GET",
+        headers: {
+          "Authorization": "Bearer " + token
+        }
+      });
+
+      if (!response.ok) {
+        listEl.innerHTML = "<li>Greška pri učitavanju notifikacija (" + response.status + ").</li>";
+        return;
+      }
+
+      const data = await response.json();
+      const items = data.notifications || [];
+
+      if (items.length === 0) {
+        listEl.innerHTML = "<li>Nema novih notifikacija.</li>";
+        return;
+      }
+
+      listEl.innerHTML = "";
+      items.forEach(function (n) {
+        const li = document.createElement("li");
+        li.textContent = n.message;
+        listEl.appendChild(li);
+      });
+    } catch (err) {
+      listEl.innerHTML = "<li>Greška u komunikaciji sa serverom.</li>";
+    }
+  }
+
+  window.addEventListener("DOMContentLoaded", loadNotifications);
+</script>
 </body>
 </html>

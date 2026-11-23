@@ -52,6 +52,7 @@ func main() {
 	http.HandleFunc("/api/folders/content", middleware.AuthMiddleware(handlers.GetFolderContentHandler))
 	http.HandleFunc("/api/items/rename", middleware.AuthMiddleware(handlers.RenameItemHandler))
 	http.HandleFunc("/api/notifications", middleware.AuthMiddleware(handlers.GetNotificationsHandler))
+	http.HandleFunc("/api/share", middleware.AuthMiddleware(handlers.ShareItemHandler))
 	http.HandleFunc("/api/register", handlers.RegisterHandler)
 	http.HandleFunc("/api/login", handlers.LoginHandler)
 
