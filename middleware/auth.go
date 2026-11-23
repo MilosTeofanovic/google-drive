@@ -39,7 +39,7 @@ func AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 func extractUserIDFromToken(token string) string {
 
 	if token != "" {
-		return "1"
+		return "token"
 	}
 	return ""
 }

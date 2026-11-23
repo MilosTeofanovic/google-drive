@@ -12,22 +12,23 @@ import (
 	"drive-backend/handlers"
 	"drive-backend/middleware"
 
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 type User struct {
-	ID              string `json:"id"`
-	FirstName       string `json:"first_name"`
-	LastName        string `json:"last_name"`
-	Email           string `json:"email"`
-	Password        string `json:"password"`
-	ConfirmPassword string `json:"confirm_password"`
-	Role            string `json:"role"`
-	Quota           int64  `json:"quota"`
+	ID        primitive.ObjectID `bson:"_id,omitempty" json:"id"`
+	FirstName string             `bson:"first_name" json:"first_name"`
+	LastName  string             `bson:"last_name" json:"last_name"`
+	Email     string             `bson:"email" json:"email"`
+	Password  string             `bson:"password" json:"password"`
+	Role      string             `bson:"role" json:"role"`
+	Quota     int64              `bson:"quota" json:"quota"`
 }
 
-var users []User
+var usersCollection *mongo.Collection
 
 func main() {
 	// 1. Povezivanje sa MongoDB bazom
@@ -47,20 +48,20 @@ func main() {
 	}
 	fmt.Println("Uspešno povezani sa MongoDB bazom!")
 
-	// Prosleđujemo kolekciju "folders" u handlers paket
+	// Inicijalizacija kolekcija u bazi
 	db := client.Database("google_drive")
 	handlers.InitFolderCollection(db.Collection("folders"))
-
 	handlers.InitFileCollection(db.Collection("files"))
+	usersCollection = db.Collection("users")
 
 	// 2. Registracija ruta
 	http.HandleFunc("/api/folders", middleware.AuthMiddleware(handlers.CreateFolderHandler))
+	http.HandleFunc("/api/files/upload", middleware.AuthMiddleware(handlers.UploadFileHandler))
+	http.HandleFunc("/api/files/open", handlers.OpenFileHandler)
 	http.HandleFunc("/api/folders/content", middleware.AuthMiddleware(handlers.GetFolderContentHandler))
 	http.HandleFunc("/api/items/rename", middleware.AuthMiddleware(handlers.RenameItemHandler))
 	http.HandleFunc("/api/register", registerHandler)
 	http.HandleFunc("/api/login", loginHandler)
-	http.HandleFunc("/api/change-email", changeEmailHandler)
-	http.HandleFunc("/api/change-password", changePasswordHandler)
 
 	// Serviranje statičkih fajlova (CSS)
 	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("./static"))))
@@ -89,35 +90,55 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var newUser User
-	err := json.NewDecoder(r.Body).Decode(&newUser)
+	var req struct {
+		FirstName       string `json:"first_name"`
+		LastName        string `json:"last_name"`
+		Email           string `json:"email"`
+		Password        string `json:"password"`
+		ConfirmPassword string `json:"confirm_password"`
+	}
+
+	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
 		http.Error(w, "Nevalidan JSON format", http.StatusBadRequest)
 		return
 	}
 
-	if newUser.Password != newUser.ConfirmPassword {
+	if req.Password != req.ConfirmPassword {
 		http.Error(w, "Lozinke se ne poklapaju", http.StatusBadRequest)
 		return
 	}
 
-	for _, u := range users {
-		if u.Email == newUser.Email {
-			http.Error(w, "Korisnik sa ovim email-om već postoji", http.StatusConflict)
-			return
-		}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var existing User
+	err = usersCollection.FindOne(ctx, bson.M{"email": req.Email}).Decode(&existing)
+	if err == nil {
+		http.Error(w, "Korisnik sa ovim email-om već postoji", http.StatusConflict)
+		return
 	}
 
-	newUser.Role = "RK"
-	newUser.Quota = 100 * 1024 * 1024
-	newUser.ID = fmt.Sprintf("%d", len(users)+1)
+	newUser := User{
+		ID:        primitive.NewObjectID(),
+		FirstName: req.FirstName,
+		LastName:  req.LastName,
+		Email:     req.Email,
+		Password:  req.Password,
+		Role:      "RK",
+		Quota:     100 * 1024 * 1024,
+	}
 
-	users = append(users, newUser)
+	_, err = usersCollection.InsertOne(ctx, newUser)
+	if err != nil {
+		http.Error(w, "Greška pri upisu korisnika u bazu", http.StatusInternalServerError)
+		return
+	}
 
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{
 		"message": "Uspešna registracija!",
-		"user_id": newUser.ID,
+		"user_id": newUser.ID.Hex(),
 	})
 }
 
@@ -139,113 +160,24 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	for _, u := range users {
-		if u.Email == credentials.Email && u.Password == credentials.Password {
-			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(map[string]string{
-				"message": "Uspešna prijava!",
-				"role":    u.Role,
-			})
-			return
-		}
-	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-	http.Error(w, "Pogrešan email ili lozinka", http.StatusUnauthorized)
-}
+	var u User
+	err = usersCollection.FindOne(ctx, bson.M{
+		"email":    credentials.Email,
+		"password": credentials.Password,
+	}).Decode(&u)
 
-// change email handler
-func changeEmailHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Dozvoljen je samo POST metod", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var req struct {
-		Email        string `json:"email"`
-		Password     string `json:"password"`
-		NewEmail     string `json:"new_email"`
-		ConfirmEmail string `json:"confirm_new_email"`
-	}
-
-	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
-		http.Error(w, "Nevalidan JSON format", http.StatusBadRequest)
-		return
-	}
-
-	if req.NewEmail != req.ConfirmEmail {
-		http.Error(w, "Novi email-ovi se ne poklapaju", http.StatusBadRequest)
-		return
-	}
-
-	for _, u := range users {
-		if u.Email == req.NewEmail {
-			http.Error(w, "Korisnik sa ovim novim email-om već postoji", http.StatusConflict)
-			return
-		}
-	}
-
-	found := false
-	for i := range users {
-		if users[i].Email == req.Email && users[i].Password == req.Password {
-			users[i].Email = req.NewEmail
-			found = true
-			break
-		}
-	}
-
-	if !found {
-		http.Error(w, "Pogrešan trenutni email ili lozinka", http.StatusUnauthorized)
+		http.Error(w, "Pogrešan email ili lozinka", http.StatusUnauthorized)
 		return
 	}
 
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{
-		"message": "Email je uspešno promenjen!",
-	})
-}
-
-// change Password handler
-func changePasswordHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Dozvoljen je samo POST metod", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var req struct {
-		Email           string `json:"email"`
-		OldPassword     string `json:"old_password"`
-		NewPassword     string `json:"new_password"`
-		ConfirmPassword string `json:"confirm_new_password"`
-	}
-
-	err := json.NewDecoder(r.Body).Decode(&req)
-	if err != nil {
-		http.Error(w, "Nevalidan JSON format", http.StatusBadRequest)
-		return
-	}
-
-	if req.NewPassword != req.ConfirmPassword {
-		http.Error(w, "Nove lozinke se ne poklapaju", http.StatusBadRequest)
-		return
-	}
-
-	found := false
-	for i := range users {
-		if users[i].Email == req.Email && users[i].Password == req.OldPassword {
-			users[i].Password = req.NewPassword
-			found = true
-			break
-		}
-	}
-
-	if !found {
-		http.Error(w, "Pogrešan email ili stara lozinka", http.StatusUnauthorized)
-		return
-	}
-
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{
-		"message": "Lozinka je uspešno promenjena!",
+		"message": "Uspešna prijava!",
+		"role":    u.Role,
+		"token":   u.ID.Hex(),
 	})
 }
