@@ -1,0 +1,44 @@
+services:
+  mongo:
+    image: mongo:7
+    container_name: drive-mongo
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-secret123}
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: drive-app
+    ports:
+      - "${SERVER_PORT:-8080}:${SERVER_PORT:-8080}"
+    environment:
+      SERVER_PORT: ${SERVER_PORT:-8080}
+      MONGO_URI: ${MONGO_URI:-mongodb://admin:secret123@mongo:27017/?authSource=admin}
+      MONGO_DB_NAME: ${MONGO_DB_NAME:-google_drive}
+      MONGO_FOLDERS_COLLECTION: ${MONGO_FOLDERS_COLLECTION:-folders}
+      MONGO_FILES_COLLECTION: ${MONGO_FILES_COLLECTION:-files}
+      MONGO_USERS_COLLECTION: ${MONGO_USERS_COLLECTION:-users}
+      UPLOAD_DIR: /app/uploads
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-50}
+      DEFAULT_USER_QUOTA_MB: ${DEFAULT_USER_QUOTA_MB:-100}
+    volumes:
+      - ./uploads:/app/uploads
+    depends_on:
+      mongo:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  mongo_data:
