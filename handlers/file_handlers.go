@@ -15,6 +15,20 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
+var (
+	uploadDir            = "./uploads"
+	maxUploadBytes int64 = 50 << 20
+)
+
+func InitUploadConfig(dir string, maxBytes int64) {
+	if dir != "" {
+		uploadDir = dir
+	}
+	if maxBytes > 0 {
+		maxUploadBytes = maxBytes
+	}
+}
+
 func UploadFileHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Dozvoljen je samo POST metod", http.StatusMethodNotAllowed)
@@ -27,7 +41,7 @@ func UploadFileHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := r.ParseMultipartForm(50 << 20); err != nil {
+	if err := r.ParseMultipartForm(maxUploadBytes); err != nil {
 		http.Error(w, "Fajl je prevelik ili forma nije validna", http.StatusBadRequest)
 		return
 	}
@@ -39,13 +53,13 @@ func UploadFileHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	if err := os.MkdirAll("./uploads", os.ModePerm); err != nil {
+	if err := os.MkdirAll(uploadDir, os.ModePerm); err != nil {
 		http.Error(w, "Greška na serveru pri kreiranju direktorijuma", http.StatusInternalServerError)
 		return
 	}
 
 	fileID := primitive.NewObjectID().Hex()
-	savePath := filepath.Join("./uploads", fileID+"_"+header.Filename)
+	savePath := filepath.Join(uploadDir, fileID+"_"+header.Filename)
 
 	dst, err := os.Create(savePath)
 	if err != nil {
@@ -106,7 +120,7 @@ func OpenFileHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	filePath := filepath.Join("./uploads", file.ID+"_"+file.Name)
+	filePath := filepath.Join(uploadDir, file.ID+"_"+file.Name)
 	w.Header().Set("Content-Disposition", "inline; filename=\""+file.Name+"\"")
 	http.ServeFile(w, r, filePath)
 }
