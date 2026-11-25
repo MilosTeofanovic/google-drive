@@ -18,6 +18,8 @@ type Config struct {
 	UploadDir        string
 	MaxUploadBytes   int64
 	DefaultUserQuota int64
+	UsersServiceURL  string
+	FilesServiceURL  string
 }
 
 func Load() Config {
@@ -46,6 +48,8 @@ func Load() Config {
 		UploadDir:        getEnv("UPLOAD_DIR", "./uploads"),
 		MaxUploadBytes:   maxUploadMB << 20,
 		DefaultUserQuota: defaultQuotaMB * 1024 * 1024,
+		UsersServiceURL:  getEnv("USERS_SERVICE_URL", "http://localhost"+port),
+		FilesServiceURL:  getEnv("FILES_SERVICE_URL", "http://localhost"+port),
 	}
 }
 

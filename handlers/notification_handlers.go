@@ -9,7 +9,6 @@ import (
 	"drive-backend/models"
 
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -20,22 +19,6 @@ func InitNotificationCollection(collection *mongo.Collection) {
 	notificationCollection = collection
 }
 
-func CreateNotification(ctx context.Context, userID, message string) {
-	if notificationCollection == nil || userID == "" || message == "" {
-		return
-	}
-
-	notif := models.Notification{
-		ID:        primitive.NewObjectID().Hex(),
-		UserID:    userID,
-		Message:   message,
-		Read:      false,
-		CreatedAt: time.Now().UTC(),
-	}
-
-	_, _ = notificationCollection.InsertOne(ctx, notif)
-}
-
 func GetNotificationsHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Dozvoljen je samo GET metod", http.StatusMethodNotAllowed)
@@ -44,7 +27,8 @@ func GetNotificationsHandler(w http.ResponseWriter, r *http.Request) {
 
 	userID := r.Header.Get("X-User-ID")
 	if userID == "" {
-		userID = "1"
+		http.Error(w, "Neautorizovan pristup", http.StatusUnauthorized)
+		return
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

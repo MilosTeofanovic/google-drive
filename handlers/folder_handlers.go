@@ -3,10 +3,14 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
+	"os"
+	"path/filepath"
 	"time"
 
 	"drive-backend/models"
+	"drive-backend/services"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -51,6 +55,21 @@ func CreateFolderHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Sinhrona provera da korisnik postoji kod Users servisa
+	if usersClient != nil {
+		existsCtx, cancelExists := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancelExists()
+
+		if _, err := usersClient.UserExists(existsCtx, ownerID); err != nil {
+			if errors.Is(err, services.ErrUserNotFound) {
+				http.Error(w, "Korisnik ne postoji u Users servisu", http.StatusNotFound)
+				return
+			}
+			http.Error(w, "Greška pri sinhronoj proveri korisnika", http.StatusBadGateway)
+			return
+		}
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -68,10 +87,15 @@ func CreateFolderHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Provera da li već postoji folder sa istim nazivom za ovog korisnika
+	// Provera da li već postoji folder sa istim nazivom za ovog korisnika na istom nivou
 	filter := bson.M{
 		"name":     req.Name,
 		"owner_id": ownerID,
+	}
+	if req.ParentID == nil || *req.ParentID == "" {
+		filter["parent_id"] = bson.M{"$in": []interface{}{nil, ""}}
+	} else {
+		filter["parent_id"] = *req.ParentID
 	}
 
 	count, err := folderCollection.CountDocuments(ctx, filter)
@@ -144,6 +168,11 @@ func GetFolderContentHandler(w http.ResponseWriter, r *http.Request) {
 
 // preimenovanje foldera ili fajla
 func RenameItemHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost && r.Method != http.MethodPut && r.Method != http.MethodPatch {
+		http.Error(w, "Dozvoljeni su POST, PUT i PATCH metodi", http.StatusMethodNotAllowed)
+		return
+	}
+
 	ownerID := r.Header.Get("X-User-ID")
 	if ownerID == "" {
 		ownerID = "1"
@@ -159,19 +188,91 @@ func RenameItemHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	col := folderCollection
-	if req.Type == "file" {
-		col = fileCollection
-	}
-
-	res, err := col.UpdateOne(ctx, bson.M{"id": req.ID, "owner_id": ownerID}, bson.M{"$set": bson.M{"name": req.NewName}})
-	if err != nil || res.MatchedCount == 0 {
-		http.Error(w, "Stavka nije pronađena ili nemate pravo izmene", http.StatusNotFound)
+	if req.Type != "folder" && req.Type != "file" {
+		http.Error(w, "Tip mora biti 'folder' ili 'file'", http.StatusBadRequest)
 		return
 	}
 
-	json.NewEncoder(w).Encode(map[string]string{"message": "Naziv uspešno promenjen!"})
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	if req.Type == "file" {
+		var existingFile models.File
+		if err := fileCollection.FindOne(ctx, bson.M{"id": req.ID, "owner_id": ownerID}).Decode(&existingFile); err != nil {
+			http.Error(w, "Datoteka nije pronađena ili nemate pravo izmene", http.StatusNotFound)
+			return
+		}
+
+		oldPath := filepath.Join(uploadDir, existingFile.ID+"_"+existingFile.Name)
+		newPath := filepath.Join(uploadDir, existingFile.ID+"_"+req.NewName)
+		if oldPath != newPath {
+			if _, err := os.Stat(oldPath); err == nil {
+				_ = os.Rename(oldPath, newPath)
+			}
+		}
+
+		now := time.Now().UTC()
+		res, err := fileCollection.UpdateOne(
+			ctx,
+			bson.M{"id": req.ID, "owner_id": ownerID},
+			bson.M{"$set": bson.M{"name": req.NewName, "updated_at": now}},
+		)
+		if err != nil || res.MatchedCount == 0 {
+			http.Error(w, "Greška pri preimenovanju datoteke", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"message":    "Naziv datoteke uspešno promenjen!",
+			"id":         req.ID,
+			"name":       req.NewName,
+			"updated_at": now,
+		})
+		return
+	}
+
+	var targetFolder models.Folder
+	if err := folderCollection.FindOne(ctx, bson.M{"id": req.ID, "owner_id": ownerID}).Decode(&targetFolder); err != nil {
+		http.Error(w, "Folder nije pronađen ili nemate pravo izmene", http.StatusNotFound)
+		return
+	}
+
+	dupFilter := bson.M{
+		"name":     req.NewName,
+		"owner_id": ownerID,
+		"id":       bson.M{"$ne": req.ID},
+	}
+	if targetFolder.ParentID == nil || *targetFolder.ParentID == "" {
+		dupFilter["parent_id"] = bson.M{"$in": []interface{}{nil, ""}}
+	} else {
+		dupFilter["parent_id"] = *targetFolder.ParentID
+	}
+
+	dupCount, err := folderCollection.CountDocuments(ctx, dupFilter)
+	if err != nil {
+		http.Error(w, "Greška prilikom provere naziva foldera", http.StatusInternalServerError)
+		return
+	}
+	if dupCount > 0 {
+		http.Error(w, "Folder sa tim nazivom već postoji na ovom nivou!", http.StatusConflict)
+		return
+	}
+
+	res, err := folderCollection.UpdateOne(
+		ctx,
+		bson.M{"id": req.ID, "owner_id": ownerID},
+		bson.M{"$set": bson.M{"name": req.NewName}},
+	)
+	if err != nil || res.MatchedCount == 0 {
+		http.Error(w, "Greška pri preimenovanju foldera", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"message": "Naziv foldera uspešno promenjen!",
+		"id":      req.ID,
+		"name":    req.NewName,
+	})
 }

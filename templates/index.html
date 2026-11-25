@@ -42,7 +42,7 @@
     <!-- glavni drajv interfejs -->
     <div id="app-screen" class="app-container hidden">
         <header class="topbar">
-            <div class="brand" onclick="navigateToRoot()" style="cursor: pointer;">
+            <div class="brand" onclick="switchView('drive')" style="cursor: pointer;">
                 <span class="material-icons-outlined logo-icon">cloud_queue</span>
                 <span>Moj Drive</span>
             </div>
@@ -66,28 +66,46 @@
                     <span class="material-icons-outlined">upload_file</span> Otpremi fajl
                 </button>
                 <input type="file" id="file-upload-input" class="hidden" onchange="uploadFile(event)">
+                <input type="file" id="version-upload-input" class="hidden" onchange="uploadNewVersion(event)">
                 <nav class="side-nav">
-                    <div class="nav-item active" onclick="navigateToRoot()">
+                    <div id="nav-drive" class="nav-item active" onclick="switchView('drive')">
                         <span class="material-icons-outlined">folder</span> Moj disk
+                    </div>
+                    <div id="nav-notifications" class="nav-item" onclick="switchView('notifications')">
+                        <span class="material-icons-outlined">notifications</span> Notifikacije
                     </div>
                 </nav>
             </aside>
 
             <main class="content-area">
-                <div class="breadcrumbs" id="breadcrumbs">
-                    <span class="crumb active" onclick="navigateToRoot()">Moj disk</span>
+                <!-- Prikaz diska -->
+                <div id="drive-view">
+                    <div class="breadcrumbs" id="breadcrumbs">
+                        <span class="crumb active" onclick="navigateToRoot()">Moj disk</span>
+                    </div>
+                    <section id="folders-section">
+                        <h4 class="section-title">Folderi</h4>
+                        <div id="folders-grid" class="items-grid"></div>
+                    </section>
+                    <section id="files-section">
+                        <h4 class="section-title">Fajlovi</h4>
+                        <div id="files-grid" class="items-grid"></div>
+                    </section>
+                    <div id="empty-state" class="empty-state hidden">
+                        <span class="material-icons-outlined">folder_open</span>
+                        <p>Ovaj folder je prazan.</p>
+                    </div>
                 </div>
-                <section id="folders-section">
-                    <h4 class="section-title">Folderi</h4>
-                    <div id="folders-grid" class="items-grid"></div>
-                </section>
-                <section id="files-section">
-                    <h4 class="section-title">Fajlovi</h4>
-                    <div id="files-grid" class="items-grid"></div>
-                </section>
-                <div id="empty-state" class="empty-state hidden">
-                    <span class="material-icons-outlined">folder_open</span>
-                    <p>Ovaj folder je prazan.</p>
+
+                <!-- Prikaz notifikacija -->
+                <div id="notifications-view" class="hidden">
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+                        <h3 style="margin: 0;">Notifikacije</h3>
+                        <button type="button" class="btn-outline" onclick="loadNotifications()">Osveži notifikacije</button>
+                    </div>
+                    <ul id="notifications-list" style="padding-left: 20px;">
+                        <li>Nema učitanih notifikacija.</li>
+                    </ul>
                 </div>
             </main>
         </div>
@@ -105,6 +123,18 @@
         </div>
     </div>
 
+    <!-- preimenovanje stavke -->
+    <div id="rename-modal" class="modal hidden">
+        <div class="modal-content">
+            <h3 id="rename-modal-title">Preimenuj stavku</h3>
+            <input type="text" id="rename-item-input" placeholder="Novi naziv">
+            <div class="modal-actions">
+                <button class="btn-outline" onclick="closeModal('rename-modal')">Otkaži</button>
+                <button class="btn-primary" onclick="submitRenameItem()">Sačuvaj</button>
+            </div>
+        </div>
+    </div>
+
     <div id="toast" class="toast hidden"></div>
 
     <script>
@@ -112,6 +142,8 @@
         let currentFolderId = null;
         let folderPath = [{ id: null, name: "Moj disk" }];
         let currentData = { subfolders: [], files: [] };
+        let versionTargetFileId = null;
+        let renameTarget = { type: null, id: null };
 
         window.onload = () => { if (currentUser) showApp(); };
 
@@ -124,6 +156,13 @@
             const t = document.getElementById("toast");
             t.textContent = msg; t.classList.remove("hidden");
             setTimeout(() => t.classList.add("hidden"), 3000);
+        }
+
+        function formatDateTime(isoStr) {
+            if (!isoStr) return "";
+            const d = new Date(isoStr);
+            if (isNaN(d.getTime())) return "";
+            return d.toLocaleString("sr-RS");
         }
 
         function switchAuthTab(tab) {
@@ -164,6 +203,8 @@
         function logout() {
             localStorage.removeItem("drive_user");
             currentUser = null;
+            const listEl = document.getElementById("notifications-list");
+            if (listEl) listEl.innerHTML = "<li>Prijavite se da biste videli notifikacije.</li>";
             document.getElementById("app-screen").classList.add("hidden");
             document.getElementById("auth-screen").classList.remove("hidden");
         }
@@ -172,18 +213,76 @@
             document.getElementById("auth-screen").classList.add("hidden");
             document.getElementById("app-screen").classList.remove("hidden");
             document.getElementById("user-badge").textContent = currentUser.email;
+            switchView("drive");
             loadFolderContent(null);
+            loadNotifications();
+        }
+
+        function switchView(view) {
+            const isDrive = view === "drive";
+            document.getElementById("drive-view").classList.toggle("hidden", !isDrive);
+            document.getElementById("notifications-view").classList.toggle("hidden", isDrive);
+            document.getElementById("nav-drive").classList.toggle("active", isDrive);
+            document.getElementById("nav-notifications").classList.toggle("active", !isDrive);
+            if (isDrive) {
+                navigateToRoot();
+            } else {
+                loadNotifications();
+            }
         }
 
         async function loadFolderContent(folderId) {
             currentFolderId = folderId;
-            const url = folderId ? `/api/folders/content?folder_id=${folderId}` : `/api/folders/content`;
+            const url = folderId ? `/api/folders/content?folder_id=${encodeURIComponent(folderId)}` : `/api/folders/content`;
             const res = await fetch(url, { headers: getAuthHeaders() });
             if (!res.ok) return;
             const data = await res.json();
             currentData = { subfolders: data.subfolders || [], files: data.files || [] };
             renderBreadcrumbs();
             renderItems(currentData.subfolders, currentData.files);
+        }
+
+        function openRenameModal(event, type, id, currentName) {
+            event.stopPropagation();
+            renameTarget = { type, id };
+            document.getElementById("rename-modal-title").textContent =
+                type === "folder" ? "Preimenuj folder" : "Preimenuj datoteku";
+            const input = document.getElementById("rename-item-input");
+            input.value = currentName || "";
+            document.getElementById("rename-modal").classList.remove("hidden");
+            input.focus();
+        }
+
+        async function submitRenameItem() {
+            const newName = document.getElementById("rename-item-input").value.trim();
+            if (!newName || !renameTarget.id || !renameTarget.type) return;
+
+            const res = await fetch("/api/items/rename", {
+                method: "POST",
+                headers: getAuthHeaders(),
+                body: JSON.stringify({
+                    type: renameTarget.type,
+                    id: renameTarget.id,
+                    new_name: newName
+                })
+            });
+
+            if (!res.ok) {
+                showToast(await res.text());
+                return;
+            }
+
+            // Ako smo preimenovali trenutni otvoreni folder u breadcrumb putanji, ažuriraj i naziv u putanji
+            if (renameTarget.type === "folder") {
+                folderPath = folderPath.map(crumb =>
+                    crumb.id === renameTarget.id ? { ...crumb, name: newName } : crumb
+                );
+            }
+
+            closeModal("rename-modal");
+            renameTarget = { type: null, id: null };
+            showToast("Naziv je uspešno izmenjen!");
+            loadFolderContent(currentFolderId);
         }
 
         function renderItems(folders, files) {
@@ -199,17 +298,84 @@
                 const card = document.createElement("div");
                 card.className = "item-card";
                 card.ondblclick = () => { folderPath.push({id: f.id, name: f.name}); loadFolderContent(f.id); };
-                card.innerHTML = `<div class="item-info"><span class="material-icons-outlined">folder</span><span class="item-name">${f.name}</span></div>`;
+
+                const safeName = (f.name || "").replace(/'/g, "\\'");
+                card.innerHTML = `
+                    <div class="item-info" style="flex-direction: column; align-items: flex-start; gap: 6px; width: 100%;">
+                        <div style="display: flex; align-items: center; gap: 8px; width: 100%;">
+                            <span class="material-icons-outlined">folder</span>
+                            <span class="item-name">${f.name}</span>
+                        </div>
+                        <button type="button" class="btn-outline" style="padding: 4px 8px; font-size: 12px;" onclick="openRenameModal(event, 'folder', '${f.id}', '${safeName}')">
+                            Preimenuj
+                        </button>
+                    </div>
+                `;
                 fGrid.appendChild(card);
             });
 
             files.forEach(file => {
                 const card = document.createElement("div");
                 card.className = "item-card";
-                card.ondblclick = () => window.open(`/api/files/open?id=${file.id}`, "_blank");
-                card.innerHTML = `<div class="item-info"><span class="material-icons-outlined" style="color:#1a73e8">description</span><span class="item-name">${file.name}</span></div>`;
+                card.ondblclick = () => window.open(`/api/files/open?id=${encodeURIComponent(file.id)}`, "_blank");
+
+                const updatedText = formatDateTime(file.updated_at);
+                const metaText = updatedText ? `${file.size || 0} B • ${updatedText}` : `${file.size || 0} B`;
+                const safeFileName = (file.name || "").replace(/'/g, "\\'");
+
+                card.innerHTML = `
+                    <div class="item-info" style="flex-direction: column; align-items: flex-start; gap: 4px; width: 100%;">
+                        <div style="display: flex; align-items: center; gap: 8px; width: 100%;">
+                            <span class="material-icons-outlined" style="color:#1a73e8">description</span>
+                            <span class="item-name">${file.name}</span>
+                        </div>
+                        <small style="color: #5f6368; font-size: 11px;">${metaText}</small>
+                        <div style="display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap;">
+                            <button type="button" class="btn-outline" style="padding: 4px 8px; font-size: 12px;" onclick="openRenameModal(event, 'file', '${file.id}', '${safeFileName}')">
+                                Preimenuj
+                            </button>
+                            <button type="button" class="btn-outline" style="padding: 4px 8px; font-size: 12px;" onclick="triggerVersionUpload(event, '${file.id}')">
+                                Nova verzija
+                            </button>
+                        </div>
+                    </div>
+                `;
                 dGrid.appendChild(card);
             });
+        }
+
+        function triggerVersionUpload(event, fileId) {
+            event.stopPropagation();
+            versionTargetFileId = fileId;
+            const input = document.getElementById("version-upload-input");
+            input.value = "";
+            input.click();
+        }
+
+        async function uploadNewVersion(e) {
+            const file = e.target.files[0];
+            if (!file || !versionTargetFileId) return;
+
+            const formData = new FormData();
+            formData.append("file", file);
+
+            const token = currentUser && currentUser.token ? currentUser.token : "";
+            const res = await fetch(`/api/files/version?id=${encodeURIComponent(versionTargetFileId)}`, {
+                method: "POST",
+                headers: { "Authorization": "Bearer " + token },
+                body: formData
+            });
+
+            versionTargetFileId = null;
+            e.target.value = "";
+
+            if (!res.ok) {
+                showToast(await res.text());
+                return;
+            }
+
+            showToast("Nova verzija fajla je otpremljena!");
+            loadFolderContent(currentFolderId);
         }
 
         function navigateToRoot() { folderPath = [{ id: null, name: "Moj disk" }]; loadFolderContent(null); }
@@ -265,55 +431,51 @@
             const q = document.getElementById("search-input").value.toLowerCase();
             renderItems(currentData.subfolders.filter(f => f.name.toLowerCase().includes(q)), currentData.files.filter(f => f.name.toLowerCase().includes(q)));
         }
-    </script>
-    <section id="notifications-panel" style="margin-top: 24px; padding: 16px; border: 1px solid #ccc; border-radius: 8px;">
-  <h3>Notifikacije</h3>
-  <button type="button" onclick="loadNotifications()">Osveži notifikacije</button>
-  <ul id="notifications-list" style="margin-top: 12px;">
-    <li>Kliknite na "Osveži notifikacije" za prikaz.</li>
-  </ul>
-</section>
 
-<script>
-  async function loadNotifications() {
-    const listEl = document.getElementById("notifications-list");
-    listEl.innerHTML = "<li>Učitavanje...</li>";
+        async function loadNotifications() {
+            const listEl = document.getElementById("notifications-list");
+            if (!listEl) return;
 
-    const token = localStorage.getItem("token") || "1";
+            const savedUser = currentUser || JSON.parse(localStorage.getItem("drive_user") || "null");
+            const token = savedUser && savedUser.token ? savedUser.token : "";
+            if (!token) {
+                listEl.innerHTML = "<li>Prijavite se da biste videli notifikacije.</li>";
+                return;
+            }
 
-    try {
-      const response = await fetch("/api/notifications", {
-        method: "GET",
-        headers: {
-          "Authorization": "Bearer " + token
+            listEl.innerHTML = "<li>Učitavanje...</li>";
+
+            try {
+                const response = await fetch("/api/notifications", {
+                    method: "GET",
+                    headers: {
+                        "Authorization": "Bearer " + token
+                    }
+                });
+
+                if (!response.ok) {
+                    listEl.innerHTML = "<li>Greška pri učitavanju notifikacija (" + response.status + ").</li>";
+                    return;
+                }
+
+                const data = await response.json();
+                const items = data.notifications || [];
+
+                if (items.length === 0) {
+                    listEl.innerHTML = "<li>Nema novih notifikacija.</li>";
+                    return;
+                }
+
+                listEl.innerHTML = "";
+                items.forEach(function (n) {
+                    const li = document.createElement("li");
+                    li.textContent = n.message;
+                    listEl.appendChild(li);
+                });
+            } catch (err) {
+                listEl.innerHTML = "<li>Greška u komunikaciji sa serverom.</li>";
+            }
         }
-      });
-
-      if (!response.ok) {
-        listEl.innerHTML = "<li>Greška pri učitavanju notifikacija (" + response.status + ").</li>";
-        return;
-      }
-
-      const data = await response.json();
-      const items = data.notifications || [];
-
-      if (items.length === 0) {
-        listEl.innerHTML = "<li>Nema novih notifikacija.</li>";
-        return;
-      }
-
-      listEl.innerHTML = "";
-      items.forEach(function (n) {
-        const li = document.createElement("li");
-        li.textContent = n.message;
-        listEl.appendChild(li);
-      });
-    } catch (err) {
-      listEl.innerHTML = "<li>Greška u komunikaciji sa serverom.</li>";
-    }
-  }
-
-  window.addEventListener("DOMContentLoaded", loadNotifications);
-</script>
+    </script>
 </body>
 </html>
