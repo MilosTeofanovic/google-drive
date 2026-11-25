@@ -41,6 +41,7 @@ func main() {
 	handlers.InitFolderCollection(db.Collection(cfg.FoldersColName))
 	handlers.InitFileCollection(db.Collection(cfg.FilesColName))
 	handlers.InitUserCollection(db.Collection(cfg.UsersColName))
+	handlers.InitNotificationCollection(db.Collection("notifications"))
 	handlers.InitUploadConfig(cfg.UploadDir, cfg.MaxUploadBytes)
 	handlers.InitDefaultQuota(cfg.DefaultUserQuota)
 
@@ -50,6 +51,8 @@ func main() {
 	http.HandleFunc("/api/files/open", handlers.OpenFileHandler)
 	http.HandleFunc("/api/folders/content", middleware.AuthMiddleware(handlers.GetFolderContentHandler))
 	http.HandleFunc("/api/items/rename", middleware.AuthMiddleware(handlers.RenameItemHandler))
+	http.HandleFunc("/api/notifications", middleware.AuthMiddleware(handlers.GetNotificationsHandler))
+	http.HandleFunc("/api/share", middleware.AuthMiddleware(handlers.ShareItemHandler))
 	http.HandleFunc("/api/register", handlers.RegisterHandler)
 	http.HandleFunc("/api/login", handlers.LoginHandler)
 
