@@ -1,22 +1,20 @@
 package handlers
 
 import (
-	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"time"
 
 	"drive-backend/models"
 
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	"github.com/gocql/gocql"
 )
 
-var notificationCollection *mongo.Collection
+var cassandraSession *gocql.Session
 
-func InitNotificationCollection(collection *mongo.Collection) {
-	notificationCollection = collection
+func InitNotificationSession(session *gocql.Session) {
+	cassandraSession = session
 }
 
 func GetNotificationsHandler(w http.ResponseWriter, r *http.Request) {
@@ -31,31 +29,33 @@ func GetNotificationsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	notifications := []models.Notification{}
 
-	var notifications []models.Notification
-	if notificationCollection != nil {
-		opts := options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}})
-		cursor, err := notificationCollection.Find(ctx, bson.M{"user_id": userID}, opts)
-		if err != nil {
+	if cassandraSession != nil {
+		query := cassandraSession.Query(
+			`SELECT id, user_id, message, read, created_at FROM notifications WHERE user_id = ?`,
+			userID,
+		).Consistency(gocql.One)
+
+		iter := query.Iter()
+		var n models.Notification
+		var createdAt time.Time
+
+		for iter.Scan(&n.ID, &n.UserID, &n.Message, &n.Read, &createdAt) {
+			n.CreatedAt = createdAt.UTC()
+			notifications = append(notifications, n)
+			n = models.Notification{}
+		}
+
+		if err := iter.Close(); err != nil {
+			log.Printf("Greška pri čitanju notifikacija iz Cassandre: %v", err)
 			http.Error(w, "Greška pri čitanju notifikacija", http.StatusInternalServerError)
 			return
 		}
-		defer cursor.Close(ctx)
-
-		if err := cursor.All(ctx, &notifications); err != nil {
-			http.Error(w, "Greška pri obradi notifikacija", http.StatusInternalServerError)
-			return
-		}
-	}
-
-	if notifications == nil {
-		notifications = []models.Notification{}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"notifications": notifications,
 	})
 }

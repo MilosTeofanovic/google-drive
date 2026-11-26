@@ -16,6 +16,22 @@ services:
       retries: 5
     restart: unless-stopped
 
+  cassandra:
+    image: cassandra:4.1
+    container_name: drive-cassandra
+    ports:
+      - "9042:9042"
+    environment:
+      CASSANDRA_CLUSTER_NAME: drive-cluster
+    volumes:
+      - cassandra_data:/var/lib/cassandra
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh -e 'DESCRIBE KEYSPACES'"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+    restart: unless-stopped
+
   app:
     build:
       context: .
@@ -35,12 +51,17 @@ services:
       DEFAULT_USER_QUOTA_MB: ${DEFAULT_USER_QUOTA_MB:-100}
       USERS_SERVICE_URL: ${USERS_SERVICE_URL:-http://localhost:8080}
       FILES_SERVICE_URL: ${FILES_SERVICE_URL:-http://localhost:8080}
+      CASSANDRA_HOSTS: ${CASSANDRA_HOSTS:-cassandra}
+      CASSANDRA_KEYSPACE: ${CASSANDRA_KEYSPACE:-drive_notifications}
     volumes:
       - ./uploads:/app/uploads
     depends_on:
       mongo:
         condition: service_healthy
+      cassandra:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:
   mongo_data:
+  cassandra_data:

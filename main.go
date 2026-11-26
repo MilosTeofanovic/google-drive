@@ -13,6 +13,7 @@ import (
 	"drive-backend/middleware"
 	"drive-backend/services"
 
+	"github.com/gocql/gocql"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -37,12 +38,26 @@ func main() {
 	}
 	fmt.Println("Uspešno povezani sa MongoDB bazom!")
 
-	// Inicijalizacija kolekcija i konfiguracije handlera
+	// 2. Povezivanje sa Apache Cassandra bazom za notifikacije
+	cluster := gocql.NewCluster(cfg.CassandraHosts...)
+	cluster.Keyspace = cfg.CassandraKeyspace
+	cluster.Consistency = gocql.Quorum
+	cluster.Timeout = 10 * time.Second
+	cluster.ConnectTimeout = 10 * time.Second
+
+	cassandraSession, err := cluster.CreateSession()
+	if err != nil {
+		log.Fatalf("Greška pri povezivanju sa Cassandrom: %v", err)
+	}
+	defer cassandraSession.Close()
+	fmt.Println("Uspešno povezani sa Apache Cassandra bazom!")
+
+	// Inicijalizacija kolekcija, sesija i konfiguracije handlera
 	db := client.Database(cfg.MongoDBName)
 	handlers.InitFolderCollection(db.Collection(cfg.FoldersColName))
 	handlers.InitFileCollection(db.Collection(cfg.FilesColName))
 	handlers.InitUserCollection(db.Collection(cfg.UsersColName))
-	handlers.InitNotificationCollection(db.Collection("notifications"))
+	handlers.InitNotificationSession(cassandraSession)
 	handlers.InitUploadConfig(cfg.UploadDir, cfg.MaxUploadBytes)
 	handlers.InitDefaultQuota(cfg.DefaultUserQuota)
 
@@ -51,7 +66,7 @@ func main() {
 	filesClient := services.NewFilesClient(cfg.FilesServiceURL)
 	handlers.InitSyncClients(usersClient, filesClient)
 
-	// 2. Registracija ruta
+	// 3. Registracija ruta
 	http.HandleFunc("/api/folders", middleware.AuthMiddleware(handlers.CreateFolderHandler))
 	http.HandleFunc("/api/files/upload", middleware.AuthMiddleware(handlers.UploadFileHandler))
 	http.HandleFunc("/api/files/version", middleware.AuthMiddleware(handlers.UploadNewFileVersionHandler))

@@ -9,17 +9,19 @@ import (
 )
 
 type Config struct {
-	ServerPort       string
-	MongoURI         string
-	MongoDBName      string
-	FoldersColName   string
-	FilesColName     string
-	UsersColName     string
-	UploadDir        string
-	MaxUploadBytes   int64
-	DefaultUserQuota int64
-	UsersServiceURL  string
-	FilesServiceURL  string
+	ServerPort        string
+	MongoURI          string
+	MongoDBName       string
+	FoldersColName    string
+	FilesColName      string
+	UsersColName      string
+	UploadDir         string
+	MaxUploadBytes    int64
+	DefaultUserQuota  int64
+	UsersServiceURL   string
+	FilesServiceURL   string
+	CassandraHosts    []string
+	CassandraKeyspace string
 }
 
 func Load() Config {
@@ -38,18 +40,32 @@ func Load() Config {
 	maxUploadMB := getEnvAsInt64("MAX_UPLOAD_MB", 50)
 	defaultQuotaMB := getEnvAsInt64("DEFAULT_USER_QUOTA_MB", 100)
 
+	cassandraHostsRaw := getEnv("CASSANDRA_HOSTS", "127.0.0.1")
+	var cassandraHosts []string
+	for _, h := range strings.Split(cassandraHostsRaw, ",") {
+		trimmed := strings.TrimSpace(h)
+		if trimmed != "" {
+			cassandraHosts = append(cassandraHosts, trimmed)
+		}
+	}
+	if len(cassandraHosts) == 0 {
+		cassandraHosts = []string{"127.0.0.1"}
+	}
+
 	return Config{
-		ServerPort:       port,
-		MongoURI:         mongoURI,
-		MongoDBName:      getEnv("MONGO_DB_NAME", "google_drive"),
-		FoldersColName:   getEnv("MONGO_FOLDERS_COLLECTION", "folders"),
-		FilesColName:     getEnv("MONGO_FILES_COLLECTION", "files"),
-		UsersColName:     getEnv("MONGO_USERS_COLLECTION", "users"),
-		UploadDir:        getEnv("UPLOAD_DIR", "./uploads"),
-		MaxUploadBytes:   maxUploadMB << 20,
-		DefaultUserQuota: defaultQuotaMB * 1024 * 1024,
-		UsersServiceURL:  getEnv("USERS_SERVICE_URL", "http://localhost"+port),
-		FilesServiceURL:  getEnv("FILES_SERVICE_URL", "http://localhost"+port),
+		ServerPort:        port,
+		MongoURI:          mongoURI,
+		MongoDBName:       getEnv("MONGO_DB_NAME", "google_drive"),
+		FoldersColName:    getEnv("MONGO_FOLDERS_COLLECTION", "folders"),
+		FilesColName:      getEnv("MONGO_FILES_COLLECTION", "files"),
+		UsersColName:      getEnv("MONGO_USERS_COLLECTION", "users"),
+		UploadDir:         getEnv("UPLOAD_DIR", "./uploads"),
+		MaxUploadBytes:    maxUploadMB << 20,
+		DefaultUserQuota:  defaultQuotaMB * 1024 * 1024,
+		UsersServiceURL:   getEnv("USERS_SERVICE_URL", "http://localhost"+port),
+		FilesServiceURL:   getEnv("FILES_SERVICE_URL", "http://localhost"+port),
+		CassandraHosts:    cassandraHosts,
+		CassandraKeyspace: getEnv("CASSANDRA_KEYSPACE", "drive_notifications"),
 	}
 }
 
