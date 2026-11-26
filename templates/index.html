@@ -9,7 +9,7 @@
 </head>
 <body>
 
-    <!-- ekran za login signup -->
+    <!-- ekran za login / signup / otps / reset lozinke -->
     <div id="auth-screen" class="auth-container">
         <div class="auth-card">
             <div class="logo-header">
@@ -24,7 +24,17 @@
             <form id="login-form" onsubmit="handleLogin(event)">
                 <input type="email" id="login-email" placeholder="Email adresa" required>
                 <input type="password" id="login-password" placeholder="Lozinka" required>
-                <button type="submit" class="btn-primary full-width">Prijavi se</button>
+                <button type="submit" class="btn-primary full-width">Nastavi (pošalji OTPS)</button>
+                <div style="margin-top: 10px; text-align: center;">
+                    <button type="button" class="btn-outline" style="font-size: 12px;" onclick="openForgotModal()">Zaboravili ste lozinku?</button>
+                </div>
+            </form>
+
+            <form id="otps-form" class="hidden" onsubmit="handleVerifyOTPS(event)">
+                <p id="otps-info" style="font-size: 13px; margin-bottom: 10px;">Unesite 6-cifreni OTPS kod poslat na imejl.</p>
+                <input type="text" id="otps-code" placeholder="6-cifreni OTPS kod" maxlength="6" required>
+                <button type="submit" class="btn-primary full-width">Potvrdi OTPS i prijavi se</button>
+                <button type="button" class="btn-outline full-width" style="margin-top: 8px;" onclick="backToLogin()">Nazad na prijavu</button>
             </form>
 
             <form id="register-form" class="hidden" onsubmit="handleRegister(event)">
@@ -53,6 +63,7 @@
             </div>
             <div class="user-actions">
                 <span id="user-badge" class="user-email"></span>
+                <button class="btn-outline" onclick="openChangePasswordModal()">Promeni lozinku</button>
                 <button class="btn-outline" onclick="logout()">Odjavi se</button>
             </div>
         </header>
@@ -135,17 +146,67 @@
         </div>
     </div>
 
+    <!-- promena lozinke (mora biti bar 24h stara) -->
+    <div id="change-password-modal" class="modal hidden">
+        <div class="modal-content">
+            <h3>Promena lozinke</h3>
+            <input type="password" id="curr-pass-input" placeholder="Trenutna lozinka">
+            <input type="password" id="new-pass-input" placeholder="Nova lozinka">
+            <input type="password" id="confirm-new-pass-input" placeholder="Potvrdi novu lozinku">
+            <div class="modal-actions">
+                <button class="btn-outline" onclick="closeModal('change-password-modal')">Otkaži</button>
+                <button class="btn-primary" onclick="submitChangePassword()">Promeni</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- zaboravljena lozinka / reset link -->
+    <div id="forgot-password-modal" class="modal hidden">
+        <div class="modal-content">
+            <h3>Reset lozinke putem imejla</h3>
+            <p style="font-size: 13px; margin-bottom: 10px;">Unesite poznatu imejl adresu da dobijete kratkotrajni link za reset lozinke.</p>
+            <input type="email" id="forgot-email-input" placeholder="Vaša imejl adresa">
+            <div class="modal-actions">
+                <button class="btn-outline" onclick="closeModal('forgot-password-modal')">Otkaži</button>
+                <button class="btn-primary" onclick="submitForgotPassword()">Pošalji link</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- reset lozinke preko tokena iz linka -->
+    <div id="reset-password-modal" class="modal hidden">
+        <div class="modal-content">
+            <h3>Postavi novu lozinku</h3>
+            <input type="text" id="reset-token-input" placeholder="Reset token">
+            <input type="password" id="reset-new-pass-input" placeholder="Nova lozinka">
+            <input type="password" id="reset-confirm-pass-input" placeholder="Potvrdi novu lozinku">
+            <div class="modal-actions">
+                <button class="btn-outline" onclick="closeModal('reset-password-modal')">Otkaži</button>
+                <button class="btn-primary" onclick="submitResetPassword()">Sačuvaj novu lozinku</button>
+            </div>
+        </div>
+    </div>
+
     <div id="toast" class="toast hidden"></div>
 
     <script>
         let currentUser = JSON.parse(localStorage.getItem("drive_user")) || null;
+        let pendingOTPSEmail = null;
         let currentFolderId = null;
         let folderPath = [{ id: null, name: "Moj disk" }];
         let currentData = { subfolders: [], files: [] };
         let versionTargetFileId = null;
         let renameTarget = { type: null, id: null };
 
-        window.onload = () => { if (currentUser) showApp(); };
+        window.onload = () => {
+            const params = new URLSearchParams(window.location.search);
+            const resetToken = params.get("reset_token");
+            if (resetToken) {
+                document.getElementById("reset-token-input").value = resetToken;
+                document.getElementById("reset-password-modal").classList.remove("hidden");
+            }
+            if (currentUser) showApp();
+        };
 
         function getAuthHeaders() {
             const token = currentUser && currentUser.token ? currentUser.token : "";
@@ -166,11 +227,20 @@
         }
 
         function switchAuthTab(tab) {
+            pendingOTPSEmail = null;
             document.getElementById("auth-msg").textContent = "";
+            document.getElementById("otps-form").classList.add("hidden");
             document.getElementById("tab-login").classList.toggle("active", tab === "login");
             document.getElementById("tab-register").classList.toggle("active", tab === "register");
             document.getElementById("login-form").classList.toggle("hidden", tab !== "login");
             document.getElementById("register-form").classList.toggle("hidden", tab !== "register");
+        }
+
+        function backToLogin() {
+            pendingOTPSEmail = null;
+            document.getElementById("otps-form").classList.add("hidden");
+            document.getElementById("login-form").classList.remove("hidden");
+            document.getElementById("auth-msg").textContent = "";
         }
 
         async function handleRegister(e) {
@@ -190,14 +260,109 @@
 
         async function handleLogin(e) {
             e.preventDefault();
+            document.getElementById("auth-msg").textContent = "";
             const email = document.getElementById("login-email").value;
             const password = document.getElementById("login-password").value;
             const res = await fetch("/api/login", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({email, password}) });
             if (!res.ok) { document.getElementById("auth-msg").textContent = await res.text(); return; }
             const data = await res.json();
-            currentUser = { email, role: data.role, token: data.token };
+            pendingOTPSEmail = data.email || email;
+            document.getElementById("login-form").classList.add("hidden");
+            document.getElementById("otps-form").classList.remove("hidden");
+            document.getElementById("otps-code").value = "";
+            document.getElementById("otps-info").textContent = data.message || `OTPS kod je poslat na ${pendingOTPSEmail}.`;
+        }
+
+        async function handleVerifyOTPS(e) {
+            e.preventDefault();
+            document.getElementById("auth-msg").textContent = "";
+            const code = document.getElementById("otps-code").value.trim();
+            const res = await fetch("/api/login/verify-otps", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({ email: pendingOTPSEmail, code })
+            });
+            if (!res.ok) { document.getElementById("auth-msg").textContent = await res.text(); return; }
+            const data = await res.json();
+            currentUser = { email: pendingOTPSEmail, role: data.role, token: data.token };
+            pendingOTPSEmail = null;
             localStorage.setItem("drive_user", JSON.stringify(currentUser));
             showApp();
+        }
+
+        function openChangePasswordModal() {
+            document.getElementById("curr-pass-input").value = "";
+            document.getElementById("new-pass-input").value = "";
+            document.getElementById("confirm-new-pass-input").value = "";
+            document.getElementById("change-password-modal").classList.remove("hidden");
+        }
+
+        async function submitChangePassword() {
+            const current_password = document.getElementById("curr-pass-input").value;
+            const new_password = document.getElementById("new-pass-input").value;
+            const confirm_password = document.getElementById("confirm-new-pass-input").value;
+
+            const res = await fetch("/api/password/change", {
+                method: "POST",
+                headers: getAuthHeaders(),
+                body: JSON.stringify({ current_password, new_password, confirm_password })
+            });
+
+            if (!res.ok) {
+                showToast(await res.text());
+                return;
+            }
+
+            closeModal("change-password-modal");
+            showToast("Lozinka je uspešno promenjena!");
+        }
+
+        function openForgotModal() {
+            document.getElementById("forgot-email-input").value = document.getElementById("login-email").value || "";
+            document.getElementById("forgot-password-modal").classList.remove("hidden");
+        }
+
+        async function submitForgotPassword() {
+            const email = document.getElementById("forgot-email-input").value.trim();
+            if (!email) return;
+
+            const res = await fetch("/api/password/forgot", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({ email })
+            });
+
+            if (!res.ok) {
+                showToast(await res.text());
+                return;
+            }
+
+            const data = await res.json();
+            closeModal("forgot-password-modal");
+            showToast(data.message || "Link za reset lozinke je poslat na imejl.");
+            document.getElementById("reset-token-input").value = "";
+            document.getElementById("reset-password-modal").classList.remove("hidden");
+        }
+
+        async function submitResetPassword() {
+            const token = document.getElementById("reset-token-input").value.trim();
+            const new_password = document.getElementById("reset-new-pass-input").value;
+            const confirm_password = document.getElementById("reset-confirm-pass-input").value;
+
+            const res = await fetch("/api/password/reset", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({ token, new_password, confirm_password })
+            });
+
+            if (!res.ok) {
+                showToast(await res.text());
+                return;
+            }
+
+            closeModal("reset-password-modal");
+            window.history.replaceState({}, document.title, window.location.pathname);
+            showToast("Lozinka je resetovana! Prijavite se.");
         }
 
         function logout() {
@@ -207,6 +372,7 @@
             if (listEl) listEl.innerHTML = "<li>Prijavite se da biste videli notifikacije.</li>";
             document.getElementById("app-screen").classList.add("hidden");
             document.getElementById("auth-screen").classList.remove("hidden");
+            backToLogin();
         }
 
         function showApp() {
@@ -272,7 +438,6 @@
                 return;
             }
 
-            // Ako smo preimenovali trenutni otvoreni folder u breadcrumb putanji, ažuriraj i naziv u putanji
             if (renameTarget.type === "folder") {
                 folderPath = folderPath.map(crumb =>
                     crumb.id === renameTarget.id ? { ...crumb, name: newName } : crumb

@@ -54,6 +54,7 @@ func main() {
 
 	// Inicijalizacija kolekcija, sesija i konfiguracije handlera
 	db := client.Database(cfg.MongoDBName)
+	handlers.InitEmailSender(services.NewEmailSender())
 	handlers.InitFolderCollection(db.Collection(cfg.FoldersColName))
 	handlers.InitFileCollection(db.Collection(cfg.FilesColName))
 	handlers.InitUserCollection(db.Collection(cfg.UsersColName))
@@ -67,6 +68,10 @@ func main() {
 	handlers.InitSyncClients(usersClient, filesClient)
 
 	// 3. Registracija ruta
+	http.HandleFunc("/api/login/verify-otps", handlers.VerifyOTPSHandler)
+	http.HandleFunc("/api/password/change", middleware.AuthMiddleware(handlers.ChangePasswordHandler))
+	http.HandleFunc("/api/password/forgot", handlers.ForgotPasswordHandler)
+	http.HandleFunc("/api/password/reset", handlers.ResetPasswordHandler)
 	http.HandleFunc("/api/folders", middleware.AuthMiddleware(handlers.CreateFolderHandler))
 	http.HandleFunc("/api/files/upload", middleware.AuthMiddleware(handlers.UploadFileHandler))
 	http.HandleFunc("/api/files/version", middleware.AuthMiddleware(handlers.UploadNewFileVersionHandler))
